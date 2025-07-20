@@ -1,0 +1,114 @@
+import pandas as pd
+loan_data = pd.read_csv("loan_data.csv")
+print(loan_data.shape)
+loan_data.head()
+
+# PART 1: EXPLORATORY DATA ANALYSIS (EDA)
+# CHALLENGE 1 : CORRELATION MATRIX
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Numeric columns only
+numeric_data = loan_data.select_dtypes(include='number')
+
+# Correlation matrix
+corr_matrix = numeric_data.corr()
+
+plt.figure(figsize=(12,8))
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
+plt.title("Correlation Matrix of Numeric Features")
+plt.show()
+
+for purpose in loan_data['purpose'].unique():
+    print(f"\Purpose: {purpose}")
+    purpose_subset = loan_data[loan_data['purpose'] == purpose]
+    display(purpose_subset.select_dtypes(include='number').corr())
+
+# CHALLENGE 2 : HISTOGRAMS SEGMENTED BY "NOT.FULLY.PAID"
+
+# Plot histograms by 'not.fully.paid'
+for column in numeric_data.columns:
+    if column != 'not.fully.paid':
+        plt.figure(figsize=(8, 4))
+        sns.histplot(data=loan_data, x=column, hue='not.fully.paid', kde=True, bins=30)
+        plt.title(f'Distribution of {column} by Loan Payment Status')
+        plt.show()
+
+# CHALLENGE 3 : ANALYZE LOANS BY PURPOSE (PAID LOANS ONLY)
+paid_loans = loan_data[loan_data['not.fully.paid'] == 0]
+
+# Group by purpose and compute means
+grouped = paid_loans.groupby('purpose').mean(numeric_only=True)
+print(grouped)
+
+# Visual comparison
+grouped.T.plot(kind='line', figsize=(14, 6), marker='o', title='Loan Feature Trends by Purpose (Fully Paid)')
+plt.xticks(rotation=45)
+plt.xlabel('Feature')
+plt.ylabel('Average Value')
+plt.grid(True)
+plt.legend(title='Loan Purpose', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.tight_layout()
+plt.show()
+
+# PART 2 : MODEL BUILDING AND CLASSIFICATION
+# STEP 1 : PREPROCESSING
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.utils import resample
+
+# Encode categorical variable
+loan_data_encoded = pd.get_dummies(loan_data, columns=['purpose'], drop_first=True)
+
+# Features and target
+X = loan_data_encoded.drop('not.fully.paid', axis=1)
+y = loan_data_encoded['not.fully.paid']
+
+# Handle class imbalance
+X_majority = X[y == 0]
+X_minority = X[y == 1]
+
+y_majority = y[y == 0]
+y_minority = y[y == 1]
+
+X_minority_upsampled, y_minority_upsampled = resample( 
+    X_minority, y_minority,
+    replace=True,
+    n_samples=len(y_majority),
+    random_state=42
+)
+
+# Combine majority with upsampled minority
+X_balanced = pd.concat([X_majority, X_minority_upsampled])
+y_balanced = pd.concat([y_majority, y_minority_upsampled])
+
+# STEP 2 : TRAIN-TEST SPLIT & MODEL
+
+X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced, test_size=0.3, random_state=42)
+
+# Model pipeline
+model = Pipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', RandomForestClassifier(class_weight='balanced', random_state=42))
+])
+
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+print(classification_report(y_test, y_pred))
+print(confusion_matrix(y_test, y_pred))
+
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+cm = confusion_matrix(y_test, y_pred)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=[0, 1])
+disp.plot(cmap='Blues')
+plt.title("Confusion Matrix")
+plt.show()
